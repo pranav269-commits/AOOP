@@ -1,0 +1,68 @@
+==============================================================
+ CO-1 CASE STUDY 5 - User Accounts & Email Verification Demo
+==============================================================
+
+--- 1. Bug: users register with incorrectly formatted emails
+  PASS  Email 'not-an-email' is rejected  ->  Email address must contain exactly one '@': 'not-an-email'
+  PASS  Email 'asha@@example.com' is rejected  ->  Email address must contain exactly one '@': 'asha@@example.com'
+  PASS  Email 'asha@example' (no TLD) is rejected  ->  Email domain must contain a dot: 'asha@example'
+  PASS  Email 'a sha@example.com' (space) is rejected  ->  Email address must not contain spaces: 'a sha@example.com'
+  PASS  Registration with a bad email is rejected  ->  Email address must contain exactly one '@': 'bad-email'
+
+--- 2. Registration: account starts UNVERIFIED and cannot log in
+  PASS  Email was normalised to lower-case
+  PASS  Status is PENDING_VERIFICATION
+  PASS  Verification state is PendingVerification
+  PASS  Login before verification is refused  ->  Login failed: account is PENDING_VERIFICATION and cannot log in
+
+--- 3. Bug: duplicate accounts using the same email, different capitalisation
+  PASS  Registering 'ASHA@example.com' again is rejected  ->  Email already registered: asha@example.com
+  PASS  Registering 'asha@EXAMPLE.COM' again is rejected  ->  Email already registered: asha@example.com
+
+--- 4. Bug: tokens accepted after expiry / wrong tokens accepted
+  PASS  Wrong token secret is rejected  ->  Verification token is incorrect
+  PASS  Account is still pending after a wrong token
+  PASS  Expired token (issued 25h ago, 24h TTL) is rejected  ->  Verification token has expired - request a new one
+
+--- 5. Correct token verifies - and the verified state CARRIES its date
+  PASS  Account is now verified
+  PASS  Verified state holds a verification date (cannot exist without one)
+       verifiedAt = 2026-11-13T04:50:00.975977403Z
+  PASS  Status became ACTIVE
+  PASS  The same token cannot be used twice  ->  Email is not awaiting verification (state: Verified)
+  PASS  Login now succeeds with the right password
+  PASS  Login with a wrong password is refused  ->  Login failed: incorrect password
+
+--- 6. Resend: a new token REPLACES the old one (old link dies)
+  PASS  Old token stops working after a resend  ->  Verification token is incorrect
+  PASS  New token verifies the account
+
+--- 7. Bug: phone numbers stored in different formats
+  PASS  '098765 43210' normalises to +919876543210
+  PASS  All three formats are the SAME phone number
+  PASS  Phone '123' is rejected  ->  Cannot tell the country code of phone number: '123'
+       Stored on account as: +919876543210
+
+--- 8. Bug: postal addresses with incomplete information
+  PASS  Complete address is accepted
+  PASS  Address with a blank city is rejected  ->  Address city must not be blank
+  PASS  Address with a bad PIN code is rejected  ->  Invalid Indian PIN code (needs 6 digits, first 1-9): '1234'
+
+--- 9. Changing the email RESETS verification for the new address
+  PASS  Email changed and normalised
+  PASS  Verification is pending again (old trust does not carry over)
+  PASS  Login is refused until the new email is verified  ->  Login failed: account is PENDING_VERIFICATION and cannot log in
+  PASS  Login works again after re-verification
+
+--- 10. Bug: suspended users are still able to log in
+  PASS  Status is SUSPENDED
+  PASS  Suspended account cannot log in  ->  Login failed: account is SUSPENDED and cannot log in
+  PASS  Reactivated account can log in again
+  PASS  Deleted account cannot log in  ->  Login failed: account is DELETED and cannot log in
+  PASS  Deleted account cannot be reactivated  ->  Only a suspended account can be reactivated (state: DELETED)
+  PASS  Deleted account cannot change email  ->  Cannot change email on a deleted account
+
+==============================================================
+ RESULT: 38 passed, 0 failed
+ ALL CHECKS PASSED - every reported bug is prevented by the design.
+==============================================================
