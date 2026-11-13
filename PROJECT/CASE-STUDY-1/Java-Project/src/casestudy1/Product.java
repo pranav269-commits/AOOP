@@ -3,13 +3,15 @@ package casestudy1;
 import java.util.Objects;
 
 /**
- * ENTITY - a catalog product, identified by its SKU (Q2).
+ * ENTITY - a catalog product, identified by its SKU (doc Classification).
  *
  * Identity survives change: the product is still the same product
  * after a price change, so equals/hashCode use the SKU only.
- * Its price is a Money - so a negative price is unconstructible,
- * and a Refund or a SignedMoney (different types, Q5) can never be
- * assigned as a price: that is a compile error, not a runtime bug.
+ * Its price is a Money - NOT the naive model's double price / String
+ * currency / double discountPercent (that naive model is the bug and
+ * is intentionally NOT implemented). A negative price is therefore
+ * unconstructible, and a Refund or a SignedMoney (different types,
+ * Q5) can never be assigned as a price: a compile error, by design.
  */
 public final class Product {
 

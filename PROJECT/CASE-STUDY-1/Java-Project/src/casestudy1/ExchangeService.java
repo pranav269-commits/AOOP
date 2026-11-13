@@ -6,7 +6,7 @@ import java.time.LocalDate;
 import java.util.Objects;
 
 /**
- * DOMAIN SERVICE - explicit currency conversion (Q4, correct design).
+ * DOMAIN SERVICE - explicit currency conversion (Q4 extension).
  *
  * Conversion is a business event, not arithmetic, so it does NOT live
  * in Money.plus. Here the caller must supply, visibly:
@@ -32,12 +32,12 @@ public final class ExchangeService {
         if (amount.currency() == target) {
             return amount;
         }
-        // minor -> major (source scale) -> apply rate -> minor (target scale),
-        // rounding HALF_EVEN, the one documented rule, in this one place.
-        BigDecimal major = BigDecimal.valueOf(amount.minorUnits())
-                .movePointLeft(amount.currency().scale());
+        // minor -> major (source minorUnits) -> apply rate -> minor
+        // (target minorUnits), rounding HALF_EVEN, the one documented rule.
+        BigDecimal major = BigDecimal.valueOf(amount.minor())
+                .movePointLeft(amount.currency().minorUnits());
         BigDecimal convertedMajor = major.multiply(rate);
-        long targetMinor = convertedMajor.movePointRight(target.scale())
+        long targetMinor = convertedMajor.movePointRight(target.minorUnits())
                 .setScale(0, RoundingMode.HALF_EVEN)
                 .longValueExact();
         return Money.ofMinor(targetMinor, target);

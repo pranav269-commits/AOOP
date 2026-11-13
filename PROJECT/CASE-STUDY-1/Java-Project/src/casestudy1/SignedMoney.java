@@ -3,7 +3,7 @@ package casestudy1;
 import java.util.Objects;
 
 /**
- * VALUE OBJECT, LEDGER-ONLY - an amount that MAY be negative (Q5).
+ * VALUE OBJECT, LEDGER-ONLY - an amount that MAY be negative (Q5 extension).
  *
  * Credits and debits genuinely net off inside a ledger/account
  * balance, so the signed type exists - but it is fenced off from
@@ -12,33 +12,34 @@ import java.util.Objects;
  *
  * The only way back to Money is requireNonNegative(), which THROWS
  * if the amount is negative - there is no silent conversion that
- * drops a sign.
+ * drops a sign. Internally it mirrors Money's shape: a long minor
+ * count plus a Currency - except minor may be negative here.
  */
 public final class SignedMoney {
 
-    private final long minorUnits;      // may be negative - that is the point
+    private final long minor;           // may be negative - that is the point
     private final Currency currency;
 
-    private SignedMoney(long minorUnits, Currency currency) {
-        this.minorUnits = minorUnits;
+    private SignedMoney(long minor, Currency currency) {
+        this.minor = minor;
         this.currency = Objects.requireNonNull(currency, "currency");
     }
 
-    public static SignedMoney ofMinor(long minorUnits, Currency currency) {
-        return new SignedMoney(minorUnits, currency);
+    public static SignedMoney ofMinor(long minor, Currency currency) {
+        return new SignedMoney(minor, currency);
     }
 
     public static SignedMoney fromMoney(Money money) {
         Objects.requireNonNull(money, "money");
-        return new SignedMoney(money.minorUnits(), money.currency());
+        return new SignedMoney(money.minor(), money.currency());
     }
 
     public static SignedMoney zero(Currency currency) {
         return new SignedMoney(0, currency);
     }
 
-    public long minorUnits() {
-        return minorUnits;
+    public long minor() {
+        return minor;
     }
 
     public Currency currency() {
@@ -46,7 +47,7 @@ public final class SignedMoney {
     }
 
     public boolean isNegative() {
-        return minorUnits < 0;
+        return minor < 0;
     }
 
     /** Ledger addition. Same currency only - the check still applies. */
@@ -56,43 +57,43 @@ public final class SignedMoney {
             throw new DomainException("Currency mismatch: cannot combine "
                     + currency + " with " + other.currency);
         }
-        return new SignedMoney(Math.addExact(minorUnits, other.minorUnits), currency);
+        return new SignedMoney(Math.addExact(minor, other.minor), currency);
     }
 
     /**
      * The ONLY way back to Money - explicit, and it refuses negatives.
      */
     public Money requireNonNegative() {
-        if (minorUnits < 0) {
+        if (minor < 0) {
             throw new DomainException("SignedMoney is negative (" + this
                     + ") and cannot be used as a Money/price");
         }
-        return Money.ofMinor(minorUnits, currency);
+        return Money.ofMinor(minor, currency);
     }
 
     @Override
     public boolean equals(Object o) {
         return o instanceof SignedMoney other
-                && minorUnits == other.minorUnits
+                && minor == other.minor
                 && currency == other.currency;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(minorUnits, currency);
+        return Objects.hash(minor, currency);
     }
 
     @Override
     public String toString() {
-        long abs = Math.abs(minorUnits);
-        String sign = minorUnits < 0 ? "-" : "";
-        if (currency.scale() == 0) {
+        long abs = Math.abs(minor);
+        String sign = minor < 0 ? "-" : "";
+        if (currency.minorUnits() == 0) {
             return sign + abs + " " + currency;
         }
         long factor = currency.factor();
         long major = abs / factor;
-        long minor = abs % factor;
-        return sign + major + "." + String.format("%0" + currency.scale() + "d", minor)
+        long rest = abs % factor;
+        return sign + major + "." + String.format("%0" + currency.minorUnits() + "d", rest)
                 + " " + currency;
     }
 }

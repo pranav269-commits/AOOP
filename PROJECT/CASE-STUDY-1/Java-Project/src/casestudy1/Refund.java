@@ -3,7 +3,7 @@ package casestudy1;
 import java.util.Objects;
 
 /**
- * VALUE OBJECT - a refund (Q5).
+ * VALUE OBJECT - a refund (Q5 extension).
  *
  * Direction is carried by the TYPE, not by a minus sign: the
  * magnitude is an ordinary, positive Money. A Refund also cannot
@@ -21,7 +21,7 @@ public final class Refund {
 
     public Refund(Money magnitude, String paymentId, String reason) {
         Objects.requireNonNull(magnitude, "magnitude");
-        if (magnitude.minorUnits() <= 0) {
+        if (magnitude.minor() <= 0) {
             throw new DomainException("Refund magnitude must be positive: " + magnitude);
         }
         if (paymentId == null || paymentId.isBlank()) {
@@ -49,7 +49,7 @@ public final class Refund {
 
     /** The ledger view of this refund: a NEGATIVE SignedMoney. Explicit, one-way. */
     public SignedMoney asSignedMoney() {
-        return SignedMoney.ofMinor(-magnitude.minorUnits(), magnitude.currency());
+        return SignedMoney.ofMinor(-magnitude.minor(), magnitude.currency());
     }
 
     @Override
