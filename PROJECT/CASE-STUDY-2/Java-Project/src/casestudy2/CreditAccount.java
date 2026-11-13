@@ -38,7 +38,7 @@ public final class CreditAccount {
             throw new DomainException("Outstanding " + outstanding
                     + " already exceeds the credit limit " + limit);
         }
-        this.reserved = Money.ZERO;
+        this.reserved = Money.zero(limit.currency());
     }
 
     /**

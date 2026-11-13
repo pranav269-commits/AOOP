@@ -11,9 +11,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * DEMO / PRESENTATION DRIVER for CO-1 Case Study 2.
  *
  * One scenario per illegal state / question in the written submission,
- * PASS/FAIL per check. Amounts and timestamps are fixed so the demo
- * is deterministic (the credit race in Scenario 10 is repeated-safe:
- * CreditAccount.reserve is atomic, so exactly one thread always wins).
+ * PASS/FAIL per check. Amounts are EUR, built with the Word doc's
+ * Money.of("...", Currency.EUR) factory and Quantity.of(...).
+ * Timestamps are fixed so the demo is deterministic (the credit race
+ * in Scenario 10 is repeated-safe: CreditAccount.reserve is atomic,
+ * so exactly one thread always wins).
  */
 public class Main {
 
@@ -23,6 +25,11 @@ public class Main {
     private static final Instant NOW = Instant.parse("2027-01-15T10:00:00Z");
     private static final ProductId WIDGET = ProductId.of("P-100");
     private static final ProductId GADGET = ProductId.of("P-200");
+
+    /** Shorthand for a EUR amount, in the doc's Money.of form. */
+    private static Money eur(String decimal) {
+        return Money.of(decimal, Currency.EUR);
+    }
 
     public static void main(String[] args) throws Exception {
         OrderPlacementService service = new OrderPlacementService();
@@ -47,24 +54,24 @@ public class Main {
         // ------------------------------------------------ Scenario 2
         section("2. Lines: duplicate product merges, total follows the lines");
         Order draft = Order.draft(CustomerId.generate());
-        draft.addLine(WIDGET, Money.rupees(500), 2);
-        draft.addLine(GADGET, Money.rupees(250), 1);
-        draft.addLine(WIDGET, Money.rupees(500), 1);   // same product again
+        draft.addLine(WIDGET, eur("500.00"), Quantity.of(2));
+        draft.addLine(GADGET, eur("250.00"), Quantity.of(1));
+        draft.addLine(WIDGET, eur("500.00"), Quantity.of(1));   // same product again
         check("Re-adding P-100 MERGES into one line - still 2 lines, not 3 (Invariant 5)",
                 draft.lines().size() == 2);
         check("The merged P-100 line has quantity 3",
                 draft.lines().stream()
                         .filter(l -> l.product().equals(WIDGET))
-                        .findFirst().orElseThrow().quantity() == 3);
-        check("total() = 500 x 3 + 250 x 1 = INR 1750.00",
-                draft.total().equals(Money.rupees(1750)));
+                        .findFirst().orElseThrow().quantity().value() == 3);
+        check("total() = 500.00 x 3 + 250.00 x 1 = 1750.00 EUR",
+                draft.total().equals(eur("1750.00")));
         draft.removeLine(GADGET);
-        check("After removing P-200 in Draft, total() = INR 1500.00",
-                draft.total().equals(Money.rupees(1500)));
+        check("After removing P-200 in Draft, total() = 1500.00 EUR",
+                draft.total().equals(eur("1500.00")));
 
         // ------------------------------------------------ Scenario 3
         section("3. Happy path: DRAFT -> PLACED -> PAID -> SHIPPED -> DELIVERED");
-        Order happy = orderWith(CustomerId.generate(), Money.rupees(750), 2);
+        Order happy = orderWith(CustomerId.generate(), eur("750.00"), 2);
         check("A new order starts in DRAFT", happy.status() == Status.DRAFT);
         check("No shipment exists in DRAFT (Invariant 4, 'if' direction)",
                 happy.shipment().isEmpty());
@@ -84,7 +91,7 @@ public class Main {
 
         // ------------------------------------------------ Scenario 4
         section("4. THE Q2 PROOF: a cancelled order can NEVER be shipped");
-        Order cancelled = orderWith(CustomerId.generate(), Money.rupees(400), 1);
+        Order cancelled = orderWith(CustomerId.generate(), eur("400.00"), 1);
         cancelled.place();
         cancelled.pay();
         cancelled.cancel();
@@ -97,7 +104,7 @@ public class Main {
 
         // ------------------------------------------------ Scenario 5
         section("5. Shipped cannot be cancelled; DELIVERED and CANCELLED are terminal");
-        Order shipped = orderWith(CustomerId.generate(), Money.rupees(600), 1);
+        Order shipped = orderWith(CustomerId.generate(), eur("600.00"), 1);
         shipped.place();
         shipped.pay();
         shipped.ship(TrackingNumber.of("TRK-555"), NOW);
@@ -115,23 +122,23 @@ public class Main {
 
         // ------------------------------------------------ Scenario 6
         section("6. Lines are locked once the order is placed");
-        Order placed = orderWith(CustomerId.generate(), Money.rupees(300), 1);
+        Order placed = orderWith(CustomerId.generate(), eur("300.00"), 1);
         placed.place();
         expectReject("addLine after placement is refused",
-                () -> placed.addLine(GADGET, Money.rupees(250), 1));
+                () -> placed.addLine(GADGET, eur("250.00"), Quantity.of(1)));
         expectReject("removeLine after placement is refused",
                 () -> placed.removeLine(WIDGET));
 
         // ------------------------------------------------ Scenario 7
         section("7. ship() needs payment AND a real tracking number");
-        Order paidOrder = orderWith(CustomerId.generate(), Money.rupees(450), 1);
+        Order paidOrder = orderWith(CustomerId.generate(), eur("450.00"), 1);
         paidOrder.place();
         paidOrder.pay();
         expectReject("ship() with a NULL tracking number is refused",
                 () -> paidOrder.ship(null, NOW));
         expectReject("A blank tracking number cannot even be constructed",
                 () -> TrackingNumber.of("   "));
-        Order unpaid = orderWith(CustomerId.generate(), Money.rupees(450), 1);
+        Order unpaid = orderWith(CustomerId.generate(), eur("450.00"), 1);
         unpaid.place();
         expectReject("ship() from PLACED (unpaid) is refused - no shipping without payment",
                 () -> unpaid.ship(TrackingNumber.of("TRK-777"), NOW));
@@ -139,53 +146,53 @@ public class Main {
         // ------------------------------------------------ Scenario 8
         section("8. Derived total: correct after EVERY Draft edit, frozen by the lock");
         Order evolving = Order.draft(CustomerId.generate());
-        evolving.addLine(WIDGET, Money.rupees(500), 1);
-        check("After adding 500 x 1, total() = INR 500.00",
-                evolving.total().equals(Money.rupees(500)));
-        evolving.addLine(GADGET, Money.rupees(250), 2);
-        check("After adding 250 x 2, total() = INR 1000.00",
-                evolving.total().equals(Money.rupees(1000)));
+        evolving.addLine(WIDGET, eur("500.00"), Quantity.of(1));
+        check("After adding 500.00 x 1, total() = 500.00 EUR",
+                evolving.total().equals(eur("500.00")));
+        evolving.addLine(GADGET, eur("250.00"), Quantity.of(2));
+        check("After adding 250.00 x 2, total() = 1000.00 EUR",
+                evolving.total().equals(eur("1000.00")));
         evolving.removeLine(WIDGET);
-        check("After removing P-100, total() = INR 500.00 - recomputed, never stale",
-                evolving.total().equals(Money.rupees(500)));
+        check("After removing P-100, total() = 500.00 EUR - recomputed, never stale",
+                evolving.total().equals(eur("500.00")));
         evolving.place();
         expectReject("Editing lines after placement is refused (so the total cannot drift)",
-                () -> evolving.addLine(WIDGET, Money.rupees(500), 1));
-        check("Total is still INR 500.00 after placement - it cannot drift (Q4)",
-                evolving.total().equals(Money.rupees(500)));
+                () -> evolving.addLine(WIDGET, eur("500.00"), Quantity.of(1)));
+        check("Total is still 500.00 EUR after placement - it cannot drift (Q4)",
+                evolving.total().equals(eur("500.00")));
 
         // ------------------------------------------------ Scenario 9
-        section("9. Credit rule (Q5): limit INR 10,000, outstanding INR 8,000");
+        section("9. Credit rule (Q5): limit 2000.00 EUR, outstanding 500.00 EUR");
         CustomerId creditCustomer = CustomerId.generate();
         CreditAccount account = new CreditAccount(
-                creditCustomer, Money.rupees(10000), Money.rupees(8000));
-        Order first = orderWith(creditCustomer, Money.rupees(500), 3);   // INR 1,500
+                creditCustomer, eur("2000.00"), eur("500.00"));
+        Order first = orderWith(creditCustomer, eur("500.00"), 3);   // 1500.00 EUR
         service.placeOrder(first, account);
-        check("First INR 1,500 order PLACES (8000 + 1500 = 9500 <= 10000)",
+        check("First 1500.00 EUR order PLACES (500.00 + 1500.00 = 2000.00 <= 2000.00)",
                 first.status() == Status.PLACED);
-        check("Its INR 1,500 is RESERVED immediately - it counts against the limit",
-                account.reserved().equals(Money.rupees(1500)));
-        Order second = orderWith(creditCustomer, Money.rupees(500), 3);  // INR 1,500
-        expectReject("Second INR 1,500 order is REJECTED (would total INR 11,000)",
+        check("Its 1500.00 EUR is RESERVED immediately - it counts against the limit",
+                account.reserved().equals(eur("1500.00")));
+        Order second = orderWith(creditCustomer, eur("500.00"), 3);  // 1500.00 EUR
+        expectReject("Second 1500.00 EUR order is REJECTED (would total 3500.00 EUR)",
                 () -> service.placeOrder(second, account));
         check("The rejected order stays in DRAFT - nothing was placed",
                 second.status() == Status.DRAFT);
         service.cancelOrder(first, account);
         check("Cancelling the first order through the service works",
                 first.status() == Status.CANCELLED);
-        check("Its reservation is RELEASED - reserved is back to INR 0.00",
-                account.reserved().equals(Money.ZERO));
+        check("Its reservation is RELEASED - reserved is back to 0.00 EUR",
+                account.reserved().equals(Money.zero(Currency.EUR)));
         service.placeOrder(second, account);
         check("With the credit freed, the second order now PLACES",
                 second.status() == Status.PLACED);
 
         // ------------------------------------------------ Scenario 10
-        section("10. The race: two orders, one credit account, same instant");
+        section("10. The race: two 1500.00 EUR orders, one 2000.00 EUR limit, same instant");
         CustomerId raceCustomer = CustomerId.generate();
         CreditAccount raceAccount = new CreditAccount(
-                raceCustomer, Money.rupees(10000), Money.rupees(8000));
-        Order raceA = orderWith(raceCustomer, Money.rupees(500), 3);     // INR 1,500
-        Order raceB = orderWith(raceCustomer, Money.rupees(500), 3);     // INR 1,500
+                raceCustomer, eur("2000.00"), Money.zero(Currency.EUR));
+        Order raceA = orderWith(raceCustomer, eur("500.00"), 3);     // 1500.00 EUR
+        Order raceB = orderWith(raceCustomer, eur("500.00"), 3);     // 1500.00 EUR
         CountDownLatch startTogether = new CountDownLatch(1);
         AtomicInteger successes = new AtomicInteger();
         AtomicInteger rejections = new AtomicInteger();
@@ -214,7 +221,7 @@ public class Main {
     /** An order in Draft holding one line: WIDGET at the given price x qty. */
     private static Order orderWith(CustomerId customer, Money unitPrice, int quantity) {
         Order order = Order.draft(customer);
-        order.addLine(WIDGET, unitPrice, quantity);
+        order.addLine(WIDGET, unitPrice, Quantity.of(quantity));
         return order;
     }
 
@@ -261,7 +268,7 @@ public class Main {
             System.out.println("  PASS  " + label + "  ->  " + e.getMessage());
         } catch (NullPointerException e) {
             // ship() validates its arguments with Objects.requireNonNull
-            // (exactly as written in Q2) - a null is a rejection too.
+            // - a null is a rejection too.
             passed++;
             System.out.println("  PASS  " + label + "  ->  " + e.getMessage());
         }

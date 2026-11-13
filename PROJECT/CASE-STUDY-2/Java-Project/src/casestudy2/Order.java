@@ -1,18 +1,33 @@
 package casestudy2;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
 /**
- * ENTITY and AGGREGATE ROOT - one order, MODEL A (Q3's recommendation):
- * a single entity whose lifecycle is one private Status field, changed
- * ONLY through guarded transition methods. There are no setters, the
- * lines list is private, and the total is DERIVED - never stored -
- * so none of the naive design's illegal states (Q1) can be built:
+ * ENTITY and AGGREGATE ROOT - Refined Model A from the Word doc,
+ * written in the doc's own form (one Order entity, one Status enum,
+ * guarded transitions). Model B (one type per state) is compared in
+ * the written answer (Q3) but is NOT implemented - Model A is the
+ * recommended model:
+ *
+ *   final class Order {
+ *     private final OrderId id;
+ *     private Status status = Status.DRAFT;
+ *     private final Map<ProductId, OrderLine> lines = new LinkedHashMap<>();
+ *     private Optional<Shipment> shipment = Optional.empty();
+ *     ...
+ *   }
+ *
+ * (The doc snippet's total() reduces over Money.zero(currency), so
+ * this class also carries a private final Currency currency, set via
+ * the constructor, plus the CustomerId the order belongs to.)
+ *
+ * Lifecycle - every transition is a guarded method; there are no
+ * setters, so none of the naive design's illegal states can be built:
  *
  *   DRAFT --place()--> PLACED --pay()--> PAID --ship()--> SHIPPED
  *   SHIPPED --deliver()--> DELIVERED          (terminal)
@@ -23,7 +38,7 @@ import java.util.Optional;
  *   1. A placed (or later) order has at least one line - place()
  *      refuses an empty order, and lines lock at placement.
  *   2. total() always equals the sum of the line totals - it is
- *      computed from the lines on every call; no field can drift.
+ *      DERIVED from the lines on every call; no field can drift.
  *   3. Transitions follow the table above - every method guards.
  *   4. Shipment data exists IFF the order has shipped - the
  *      Optional<Shipment> is set inside ship(), together with the
@@ -35,54 +50,48 @@ public final class Order {
 
     private final OrderId id;
     private final CustomerId customerId;
-    private Status status;
-    private final List<OrderLine> lines;
-    private Optional<Shipment> shipment;
+    private final Currency currency;
+    private Status status = Status.DRAFT;
+    private final Map<ProductId, OrderLine> lines = new LinkedHashMap<>();
+    private Optional<Shipment> shipment = Optional.empty();
 
-    public Order(OrderId id, CustomerId customerId) {
+    public Order(OrderId id, CustomerId customerId, Currency currency) {
         this.id = Objects.requireNonNull(id, "order id");
         this.customerId = Objects.requireNonNull(customerId, "customer id");
-        this.status = Status.DRAFT;
-        this.lines = new ArrayList<>();
-        this.shipment = Optional.empty();
+        this.currency = Objects.requireNonNull(currency, "currency");
     }
 
+    /** A new order for a customer, in EUR (the demo's currency). */
     public static Order draft(CustomerId customerId) {
-        return new Order(OrderId.generate(), customerId);
+        return new Order(OrderId.generate(), customerId, Currency.EUR);
+    }
+
+    public static Order draft(CustomerId customerId, Currency currency) {
+        return new Order(OrderId.generate(), customerId, currency);
     }
 
     // ------------------------------------------------------------------
     // Lines - DRAFT only; re-adding a product MERGES its quantity
+    // (the Word doc's addLine, verbatim in form)
     // ------------------------------------------------------------------
 
-    public void addLine(ProductId product, Money unitPrice, int quantity) {
-        requireStatus(Status.DRAFT, "add lines to");
-        Objects.requireNonNull(product, "product");
+    public void addLine(ProductId p, Money unitPrice, Quantity q) {
+        requireStatus(Status.DRAFT);
+        Objects.requireNonNull(p, "product");
         Objects.requireNonNull(unitPrice, "unit price");
-        if (quantity <= 0) {
-            throw new DomainException("Line quantity must be at least 1, got " + quantity);
+        Objects.requireNonNull(q, "quantity");
+        if (unitPrice.currency() != currency) {
+            throw new CurrencyMismatch("Order is in " + currency
+                    + " but the line price is in " + unitPrice.currency());
         }
-        for (int i = 0; i < lines.size(); i++) {
-            OrderLine existing = lines.get(i);
-            if (existing.product().equals(product)) {
-                if (!existing.unitPrice().equals(unitPrice)) {
-                    throw new DomainException("Product " + product
-                            + " is already on this order at a different unit price");
-                }
-                // Invariant 5: same product -> ONE line, quantity grows
-                lines.set(i, existing.withQuantity(existing.quantity() + quantity));
-                return;
-            }
-        }
-        lines.add(new OrderLine(product, unitPrice, quantity));
+        lines.merge(p, new OrderLine(p, unitPrice, q), OrderLine::combine);
     }
 
-    public void removeLine(ProductId product) {
-        requireStatus(Status.DRAFT, "remove lines from");
-        Objects.requireNonNull(product, "product");
-        boolean removed = lines.removeIf(line -> line.product().equals(product));
-        if (!removed) {
-            throw new DomainException("Product " + product + " is not on this order");
+    public void removeLine(ProductId p) {
+        requireStatus(Status.DRAFT);
+        Objects.requireNonNull(p, "product");
+        if (lines.remove(p) == null) {
+            throw new DomainException("Product " + p + " is not on this order");
         }
     }
 
@@ -91,45 +100,44 @@ public final class Order {
     // ------------------------------------------------------------------
 
     public void place() {
-        requireStatus(Status.DRAFT, "place");
-        if (lines.isEmpty()) {
-            throw new DomainException(
-                    "Cannot place an empty order - a placed order needs at least one line");
-        }
-        this.status = Status.PLACED;
+        requireStatus(Status.DRAFT);
+        if (lines.isEmpty()) throw new DomainException("cannot place an empty order");
+        status = Status.PLACED;
     }
 
     public void pay() {
-        requireStatus(Status.PLACED, "pay");
-        this.status = Status.PAID;
+        requireStatus(Status.PLACED);
+        status = Status.PAID;
     }
 
-    public void ship(TrackingNumber tracking, Instant at) {
-        requireStatus(Status.PAID);                 // THE guard
-        Objects.requireNonNull(tracking, "tracking");
+    public void ship(TrackingNumber t, Instant at) {
+        requireStatus(Status.PAID);
+        Objects.requireNonNull(t, "tracking");
         Objects.requireNonNull(at, "shippedAt");
-        this.shipment = Optional.of(new Shipment(tracking, at));
-        this.status = Status.SHIPPED;
+        shipment = Optional.of(new Shipment(t, at));
+        status = Status.SHIPPED;
     }
 
     public void deliver() {
-        requireStatus(Status.SHIPPED, "deliver");
-        this.status = Status.DELIVERED;
+        requireStatus(Status.SHIPPED);
+        status = Status.DELIVERED;
     }
 
     /** Cancellation is allowed ONLY from DRAFT, PLACED or PAID -
      *  never from SHIPPED, DELIVERED or CANCELLED. */
     public void cancel() {
-        if (status == Status.SHIPPED || status == Status.DELIVERED
-                || status == Status.CANCELLED) {
+        if (status != Status.DRAFT && status != Status.PLACED && status != Status.PAID) {
             throw new DomainException("Cannot cancel an order in state " + status
                     + " - only DRAFT, PLACED or PAID orders can be cancelled");
         }
-        this.status = Status.CANCELLED;
+        status = Status.CANCELLED;
     }
 
     // ------------------------------------------------------------------
-    // The guard (Q2) - one helper, reused by every transition
+    // The guard - one private helper, reused by every transition.
+    // This is the whole reason a cancelled order can never be shipped:
+    // a cancelled order is in state CANCELLED, so ship()'s
+    // requireStatus(Status.PAID) throws before anything is recorded.
     // ------------------------------------------------------------------
 
     private void requireStatus(Status expected) {
@@ -140,38 +148,28 @@ public final class Order {
         }
     }
 
-    private void requireStatus(Status expected, String action) {
-        if (status != expected) {
-            throw new DomainException("Cannot " + action + " an order in state "
-                    + status + " (requires " + expected + ")");
-        }
-    }
-
     // ------------------------------------------------------------------
     // Read-only access - NO setters, NO stored total
     // ------------------------------------------------------------------
 
-    /** DERIVED (Q4): the sum of the line totals, computed fresh on
-     *  every call from the single source of truth - the lines. */
+    /** DERIVED (Word doc, verbatim in form): the sum of the line
+     *  totals, computed fresh on every call from the lines. */
     public Money total() {
-        Money sum = Money.ZERO;
-        for (OrderLine line : lines) {
-            sum = sum.plus(line.lineTotal());
-        }
-        return sum;
+        return lines.values().stream()
+                .map(OrderLine::total)
+                .reduce(Money.zero(currency), Money::plus);
+    }
+
+    /** An unmodifiable copy - callers can read the lines but can
+     *  never add/remove behind the aggregate's back. */
+    public List<OrderLine> lines() {
+        return List.copyOf(lines.values());
     }
 
     public OrderId id() { return id; }
     public CustomerId customerId() { return customerId; }
+    public Currency currency() { return currency; }
     public Status status() { return status; }
-
-    /** An unmodifiable VIEW - callers can read the lines but can
-     *  never add/remove behind the aggregate's back (the naive
-     *  design's public list is exactly what broke Invariant 2). */
-    public List<OrderLine> lines() {
-        return Collections.unmodifiableList(lines);
-    }
-
     public Optional<Shipment> shipment() { return shipment; }
 
     @Override

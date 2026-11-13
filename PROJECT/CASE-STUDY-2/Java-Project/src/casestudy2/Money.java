@@ -1,72 +1,138 @@
 package casestudy2;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Objects;
 
 /**
- * VALUE OBJECT - an exact amount of money (Case Study 1's model).
- * Stored as an integer count of paise; never a double, never negative.
- * All amounts in this demo are INR.
+ * VALUE OBJECT - an exact amount of money, as in the Word doc
+ * Refined Model (reused from Case Study 1):
+ *
+ *   final class Money {
+ *     private final long minor;            // amount in minor units
+ *     private final Currency currency;
+ *     static Money of(String decimal, Currency c) { ... }
+ *     Money plus(Money o)  { requireSame(o); ... }
+ *     Money times(Quantity q) { ... }
+ *     private void requireSame(Money o) { if (currency != o.currency)
+ *                                         throw new CurrencyMismatch(); }
+ *   }
+ *
+ * Stored as a long counting MINOR units (cents / yen / fils) plus a
+ * Currency. Integer arithmetic is exact - unlike double, where
+ * 0.1 + 0.2 != 0.3. A Money is never negative: the one private
+ * constructor rejects negatives, so a negative price cannot be built.
  */
 public final class Money implements Comparable<Money> {
 
-    public static final Money ZERO = new Money(0);
+    private final long minor;               // amount in minor units
+    private final Currency currency;
 
-    private final long paise;
-
-    private Money(long paise) {
-        if (paise < 0) {
-            throw new DomainException("Money must not be negative");
+    private Money(long minor, Currency currency) {
+        if (minor < 0) {
+            throw new DomainException("Money must not be negative: " + minor
+                    + " minor units");
         }
-        this.paise = paise;
+        this.minor = minor;
+        this.currency = Objects.requireNonNull(currency, "currency");
     }
 
-    public static Money rupees(long rupees) {
-        if (rupees < 0) {
-            throw new DomainException("Money must not be negative");
+    /**
+     * The Word doc factory: Money.of("10.50", Currency.EUR).
+     * The amount must be exactly representable in the currency's minor
+     * units - "10.505" EUR (half a cent) is rejected, not rounded -
+     * and negatives are rejected by the private constructor.
+     */
+    public static Money of(String decimal, Currency c) {
+        Objects.requireNonNull(decimal, "decimal amount");
+        Objects.requireNonNull(c, "currency");
+        try {
+            long minorUnits = new BigDecimal(decimal.trim())
+                    .movePointRight(c.minorUnits())
+                    .setScale(0, RoundingMode.UNNECESSARY)
+                    .longValueExact();
+            return new Money(minorUnits, c);
+        } catch (ArithmeticException | NumberFormatException e) {
+            throw new DomainException("Amount \"" + decimal + "\" is not exactly "
+                    + "representable in " + c + " minor units");
         }
-        return new Money(Math.multiplyExact(rupees, 100L));
     }
 
-    public Money plus(Money other) {
-        Objects.requireNonNull(other, "other amount");
-        return new Money(Math.addExact(paise, other.paise));
+    /** Zero in the given currency - the identity for Order.total(). */
+    public static Money zero(Currency currency) {
+        return new Money(0, currency);
     }
 
-    /** Subtraction that REFUSES to go negative - a Money can never
-     *  become a negative amount (Case Study 1's rule). */
-    public Money minus(Money other) {
-        Objects.requireNonNull(other, "other amount");
-        if (other.paise > paise) {
-            throw new DomainException("Money subtraction would go negative: "
-                    + this + " - " + other);
-        }
-        return new Money(paise - other.paise);
+    public long minor() {
+        return minor;
     }
 
-    public Money times(long factor) {
-        if (factor < 0) {
-            throw new DomainException("Money factor must not be negative");
+    public Currency currency() {
+        return currency;
+    }
+
+    /** Word doc guard: different currencies can never be combined. */
+    private void requireSame(Money o) {
+        Objects.requireNonNull(o, "other amount");
+        if (currency != o.currency) {
+            throw new CurrencyMismatch();
         }
-        return new Money(Math.multiplyExact(paise, factor));
+    }
+
+    /** Exact addition. Same currency only - see requireSame. */
+    public Money plus(Money o) {
+        requireSame(o);
+        return new Money(Math.addExact(minor, o.minor), currency);
+    }
+
+    /** Exact subtraction. The result may not go negative. */
+    public Money minus(Money o) {
+        requireSame(o);
+        long result = Math.subtractExact(minor, o.minor);
+        if (result < 0) {
+            throw new DomainException("Money.minus would go negative: "
+                    + this + " - " + o);
+        }
+        return new Money(result, currency);
+    }
+
+    /** Multiply by a Quantity - exact integer multiplication. */
+    public Money times(Quantity q) {
+        Objects.requireNonNull(q, "quantity");
+        return new Money(Math.multiplyExact(minor, q.value()), currency);
     }
 
     @Override
     public int compareTo(Money other) {
-        return Long.compare(paise, other.paise);
+        requireSame(other);
+        return Long.compare(minor, other.minor);
     }
 
     @Override
     public boolean equals(Object o) {
-        return o instanceof Money other && paise == other.paise;
+        return o instanceof Money other
+                && minor == other.minor
+                && currency == other.currency;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(paise);
+        return Objects.hash(minor, currency);
     }
 
+    /**
+     * Readable form respecting the currency scale:
+     * 1050 EUR -> "10.50 EUR", 500 JPY -> "500 JPY", 1250 KWD -> "1.250 KWD".
+     */
     @Override
     public String toString() {
-        return String.format("INR %d.%02d", paise / 100, paise % 100);
+        if (currency.minorUnits() == 0) {
+            return minor + " " + currency;
+        }
+        long factor = currency.factor();
+        long major = minor / factor;
+        long rest = minor % factor;
+        return major + "." + String.format("%0" + currency.minorUnits() + "d", rest)
+                + " " + currency;
     }
 }
