@@ -1,0 +1,79 @@
+=== COMPILE (main) ===
+Compile OK - 9 main files
+
+=== RUN Main (waypoint.model.Main) ===
+== Money ==
+  Money.rupees(120)            = INR 120.00  (minor=12000)
+  Rs 1 + 25 paise              = INR 1.25
+  Rs 1 - 25 paise              = INR 0.75
+  Rs 120 x 2                   = INR 240.00
+  Rs 100 allocated in 3 shares = [INR 33.34, INR 33.33, INR 33.33]  (sum must be exactly Rs 100)
+  PASS  zeroIsZero: rupees(0) equals ofMinor(0, INR)
+  PASS  rupees(120).minor() == 12000
+  PASS  plus keeps exact paise
+  PASS  minus keeps exact paise
+  PASS  times scales
+  PASS  equal values are equal + same hashCode
+  PASS  allocate(3) returns 3 shares summing exactly to Rs 100
+  PASS  isNegative / compareTo work
+  PASS  mixing INR + USD -> throws IllegalArgumentException
+  PASS  allocate(0) -> throws IllegalArgumentException
+
+== Registration ==
+  new Registration("  mh12ab1234  ") -> stored as "MH12AB1234" (trimmed + upper-cased)
+  PASS  registration is normalised to MH12AB1234
+  PASS  one-letter series also valid (MH12A1234)
+  PASS  equal registrations are equal
+  PASS  invalid registration 'MH1234' -> throws IllegalArgumentException
+  PASS  invalid registration '1234AB5678' -> throws IllegalArgumentException
+  PASS  null registration -> throws NullPointerException
+
+== Ids (TicketId / SpotId / VehicleId) ==
+  TicketId("T1")=TicketId[value=T1], SpotId("S1")=SpotId[value=S1], VehicleId("V1")=VehicleId[value=V1]
+  TicketId and SpotId are different types -- passing one where the other is expected does not compile.
+  PASS  TicketId trims its value
+  PASS  blank TicketId -> throws IllegalArgumentException
+  PASS  blank SpotId -> throws IllegalArgumentException
+  PASS  null VehicleId -> throws NullPointerException
+
+== Spot ==
+  New spot: Spot[id=S1, free]
+  PASS  a new spot is free
+  PASS  first tryAssign(V1) succeeds
+  After assign: Spot[id=S1, occupied by V1]
+  PASS  second tryAssign(V2) fails, does not overwrite
+  PASS  release by a non-occupant changes nothing
+  PASS  release by the occupant frees the spot
+  PASS  release is idempotent -- releasing a free spot is harmless
+  PASS  spot identity is its id, not its state (equals + hashCode)
+
+== Ticket + FarePolicy ==
+  Opened: Ticket[id=T1, spot=S1, entry=2026-03-01T10:00:00Z, open]
+  PASS  a new ticket is open, fare/exit are null
+  PASS  close with exit before entry (09:00 < 10:00) -> throws IllegalArgumentException
+  PASS  a rejected close leaves the ticket untouched (still open)
+  Closed with FLAT policy: Ticket[id=T1, spot=S1, entry=2026-03-01T10:00:00Z, closed at 2026-03-01T12:00:00Z, fare=INR 40.00]
+  PASS  fare comes from the injected policy (Rs 40)
+  PASS  a closed ticket is not open
+  PASS  closing twice -> throws TicketAlreadyClosed
+  10:00 -> 12:30 with HOURLY Rs20/started-hour policy: fare = INR 60.00 (3 started hours x Rs 20)
+  PASS  hourly policy: 2.5 hours = 3 started hours = Rs 60
+
+== Full flow (all files together) ==
+  MH12AB1234 parked in S7 at 10:00, left at 12:00, paid INR 40.00, spot free again: true
+  PASS  full flow: park -> ticket -> pay Rs 40 -> release -> spot free
+
+==========================================
+Main demo: 35/35 checks passed
+ALL CHECKS PASSED
+
+=== COMPILE + RUN JUnit 5 tests (given suite from 7.2) ===
+Test compile OK
+
+Thanks for using JUnit! Support its development at https://junit.org/sponsoring
+
+
+Test run finished after 256 ms
+[        15 tests found           ]
+[        15 tests successful      ]
+[         0 tests failed          ]
